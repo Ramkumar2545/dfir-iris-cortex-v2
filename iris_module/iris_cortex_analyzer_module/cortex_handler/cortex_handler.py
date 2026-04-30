@@ -84,8 +84,7 @@ class CortexHandler:
             raise ValueError("cortex_api_key is not configured")
         s = requests.Session()
         s.headers.update({
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
         })
         s.verify = verify
         self._session = s
@@ -185,7 +184,8 @@ class CortexHandler:
         if status == "Success":
             return self._get_report(job_id)
         elif status == "Failure":
-            return {"error": str(job.get("errorMessage") or "Analyzer job failed")}
+            err = str(job.get("errorMessage") or "Analyzer job failed")
+            return {"error": err}
         else:
             return {"error": f"Analyzer timed out after {timeout}s (job={job_id})"}
 
@@ -254,10 +254,17 @@ class CortexHandler:
 
     def _save_attribute(self, ioc, analyzer_name: str, report_html: str):
         try:
-            ioc.add_attribute(
-                attribute_name=f"CORTEX: {analyzer_name}",
-                attribute_value=str(report_html)
+            # Import the specific IRIS function needed to inject custom tabs
+            from app.datamgmt.manage.manage_attribute_db import add_tab_attribute_field
+            
+            add_tab_attribute_field(
+                obj=ioc,
+                tab_name=f"CORTEX: {analyzer_name}",
+                field_name="HTML Report",
+                field_type="html",
+                field_value=str(report_html)
             )
             self.log.info(f"Saved report for {analyzer_name} as IOC attribute")
+            
         except Exception as e:
             self.log.warning(f"Could not save attribute for {analyzer_name}: {e}")
