@@ -163,6 +163,9 @@ services:
     container_name: cortex
     restart: unless-stopped
     user: "0:0"
+    # Load .env so CORTEX_SECRET_KEY is available for HOCON substitution
+    # in cortex/config/application.conf: play.http.secret.key = ${?CORTEX_SECRET_KEY}
+    env_file: [.env]
     environment:
       JAVA_OPTS: "-Xms1g -Xmx1g -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=256m"
       es_uri: http://cortex_es:9200

@@ -9,7 +9,7 @@
 #   3. Set vm.max_map_count for Elasticsearch
 #   4. Create runtime dirs (cortex, certs, /tmp/cortex-jobs)
 #   5. Generate self-signed TLS certificate
-#   6. Auto-generate .env from .env.example
+#   6. Auto-generate .env from .env.example (all secrets incl. CORTEX_SECRET_KEY)
 #   7. Validate critical .env keys
 #   8. Enable pgcrypto in PostgreSQL
 # ============================================================
@@ -51,7 +51,6 @@ elif [ "${OS_FAMILY}" = "rpm" ]; then
     curl wget ca-certificates \
     openssl python3 python3-pip python3-devel \
     git gcc make libffi-devel openssl-devel
-  # python3-build may not exist — install via pip
   python3 -m pip install --quiet --upgrade pip build 2>/dev/null || true
 fi
 ok "OS packages installed"
@@ -111,12 +110,14 @@ if [ ! -f "${PROJECT_DIR}/.env" ]; then
   SALT=$(python3    -c "import secrets; print(secrets.token_hex(16))")
   DBPASS="IrisDB$(openssl rand -hex 8)"
   DBADMIN="IrisAdm$(openssl rand -hex 8)"
+  CORTEX_SECRET=$(openssl rand -base64 48)
 
   sed -i "s|CHANGE_ME_secret_key_min_32_chars|${SECRET}|g"   "${PROJECT_DIR}/.env"
   sed -i "s|CHANGE_ME_password_salt|${SALT}|g"               "${PROJECT_DIR}/.env"
   sed -i "s|CHANGE_ME_db_password|${DBPASS}|g"               "${PROJECT_DIR}/.env"
   sed -i "s|CHANGE_ME_admin_password|${DBADMIN}|g"           "${PROJECT_DIR}/.env"
   sed -i "s|^DB_PASS=.*|DB_PASS=${DBPASS}|"                  "${PROJECT_DIR}/.env"
+  sed -i "s|CHANGE_ME_cortex_secret_key|${CORTEX_SECRET}|g"  "${PROJECT_DIR}/.env"
 
   ok ".env created with auto-generated secrets"
   warn "Set CORTEX_API_KEY in .env after Cortex first-time setup"
@@ -126,7 +127,7 @@ fi
 
 # ── 7. Validate .env ──────────────────────────────────────────
 info "[7/8] Validating .env keys..."
-for KEY in SECRET_KEY SECURITY_PASSWORD_SALT DB_PASS IRIS_VERSION; do
+for KEY in SECRET_KEY SECURITY_PASSWORD_SALT DB_PASS IRIS_VERSION CORTEX_SECRET_KEY; do
   VAL=$(grep "^${KEY}=" "${PROJECT_DIR}/.env" | cut -d'=' -f2- || true)
   if [ -z "${VAL}" ] || echo "${VAL}" | grep -qi 'change_me'; then
     err "${KEY} is missing or still CHANGE_ME! Edit .env first."
