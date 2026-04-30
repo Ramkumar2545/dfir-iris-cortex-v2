@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "iris_cortex_analyzer_module"
+version         = "1.0.0"
+description     = "DFIR-IRIS module: Cortex Analyzer integration via cortex4py"
+readme          = "README.md"
+license         = { file = "../LICENSE" }
+authors         = [{ name = "Ram Kumar G" }]
+requires-python = ">=3.9"
+dependencies    = [
+    "cortex4py>=2.1",
+    "jinja2>=3.1.0",
+    "requests>=2.31.0",
+]
+
+[project.entry-points."iris_modules"]
+iris_cortex_analyzer_module = "iris_cortex_analyzer_module.IrisCortexAnalyzerInterface:IrisCortexAnalyzerInterface"
+
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["iris_cortex_analyzer_module*"]
