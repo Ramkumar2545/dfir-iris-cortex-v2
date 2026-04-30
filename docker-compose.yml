@@ -19,7 +19,7 @@
 
 services:
 
-  # ── IRIS Stack ───────────────────────────────────────────────
+  # ── IRIS Stack ──────────────────────────────────────────────
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -122,7 +122,7 @@ services:
         limits:
           memory: 256m
 
-  # ── Cortex Stack ─────────────────────────────────────────────
+  # ── Cortex Stack ──────────────────────────────────────────
   # Cortex 4.x requires Elasticsearch 8.x ONLY
   # ES_VERSION must be 8.x — ES 7.x is NOT supported by Cortex 4.0
 
@@ -184,7 +184,8 @@ services:
         condition: service_healthy
     networks: [cortex_net, iris_backend]
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -f http://localhost:9001/cortex/api/status || exit 1"]
+      # Cortex 4.x — correct endpoint is /api/status (no /cortex prefix)
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:9001/api/status | grep -qE '^(200|520)$'"]
       start_period: 90s
       interval: 15s
       timeout: 5s
