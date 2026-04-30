@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================
-# install_module.sh — Build + install iris_cortex_analyzer_module
-# Run AFTER: docker compose up -d  (all containers healthy)
+# install_module.sh — Apply patches + build + install
+#                     iris_cortex_analyzer_module
 #
+# Run AFTER: docker compose up -d  (all containers healthy)
 # Uses /opt/venv/bin/pip inside IRIS containers
 # (bare pip hits system Python — module invisible to IRIS)
 # ============================================================
@@ -20,13 +21,18 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()  { echo -e "${RED}[ERR]${NC}  $*" >&2; exit 1; }
 
 info "═══════════════════════════════════════════════════"
-info " Installing iris_cortex_analyzer_module"
+info " IRIS Cortex Integration — Full Install"
 info "═══════════════════════════════════════════════════"
 
-# ── 0. Ensure python3 build module is available on HOST ────────
+# ── 0. Apply IRIS source patches ──────────────────────────────
+info "[0/5] Applying IRIS source patches..."
+bash "${SCRIPT_DIR}/apply_patches.sh"
+ok "Patches applied"
+
+# ── 1. Ensure python3 build module is available on HOST ────────
+info "[1/5] Checking python3 build module..."
 if ! python3 -m build --version &>/dev/null; then
   warn "python3 'build' module not found — installing now..."
-  # Try apt first (Ubuntu/Debian), fall back to pip3
   if command -v apt-get &>/dev/null; then
     sudo apt-get install -y -qq python3-build 2>/dev/null \
       || pip3 install --quiet build
@@ -38,8 +44,8 @@ else
   ok "python3 build module already available"
 fi
 
-# ── 1. Build ─────────────────────────────────────────────────
-info "[1/5] Building module from ${MODULE_DIR}..."
+# ── 2. Build ─────────────────────────────────────────────────
+info "[2/5] Building module from ${MODULE_DIR}..."
 cd "${MODULE_DIR}"
 python3 -m build --sdist --outdir dist/ 2>&1 | tail -5
 
@@ -48,39 +54,35 @@ TARBALL=$(ls "${MODULE_DIR}/dist"/iris_cortex_analyzer_module-*.tar.gz \
 ok "Built: $(basename ${TARBALL})"
 cd - > /dev/null
 
-# ── 2. Install into app container ─────────────────────────────
-info "[2/5] Installing into iriswebapp_app..."
+# ── 3. Install into app container ─────────────────────────────
+info "[3/5] Installing into iriswebapp_app..."
 docker cp "${TARBALL}" iriswebapp_app:/tmp/
 docker exec iriswebapp_app \
   "${VENV_PIP}" install --quiet "/tmp/$(basename ${TARBALL})"
 ok "Installed in iriswebapp_app"
 
-# ── 3. Install into worker container ───────────────────────────
-info "[3/5] Installing into iriswebapp_worker..."
+# ── 4. Install into worker container ───────────────────────────
+info "[4/5] Installing into iriswebapp_worker..."
 docker cp "${TARBALL}" iriswebapp_worker:/tmp/
 docker exec iriswebapp_worker \
   "${VENV_PIP}" install --quiet "/tmp/$(basename ${TARBALL})"
 ok "Installed in iriswebapp_worker"
 
-# ── 4. Restart ───────────────────────────────────────────────
-info "[4/5] Restarting app + worker..."
+# ── 5. Restart + Verify ───────────────────────────────────────
+info "[5/5] Restarting app + worker then verifying..."
 docker restart iriswebapp_app iriswebapp_worker
-ok "Containers restarted"
-
-# ── 5. Verify ─────────────────────────────────────────────────
-info "[5/5] Waiting 20s then verifying..."
 sleep 20
 
 docker exec iriswebapp_app    "${VENV_PIP}" show iris_cortex_analyzer_module \
   > /dev/null && ok "Verified in iriswebapp_app" \
-  || err "NOT found in app"
+  || err "NOT found in iriswebapp_app"
 
 docker exec iriswebapp_worker "${VENV_PIP}" show iris_cortex_analyzer_module \
   > /dev/null && ok "Verified in iriswebapp_worker" \
-  || err "NOT found in worker"
+  || err "NOT found in iriswebapp_worker"
 
 info ""
-ok  " Module installation complete!"
+ok  " Full install complete!"
 info " "
 info " Next: IRIS UI → Advanced → Modules → Add Module"
 info "   Module name   : iris_cortex_analyzer_module"
