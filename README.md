@@ -349,4 +349,4 @@ dfir-iris-cortex-v2/
 
 ## Author
 
-Ram Kumar G — Chennai, Tamil Nadu
+Ram Kumar G
