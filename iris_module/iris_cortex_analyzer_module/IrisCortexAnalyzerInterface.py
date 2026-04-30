@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import requests
+
 import iris_interface.IrisInterfaceStatus as InterfaceStatus
 from iris_interface.IrisModuleInterface import IrisModuleInterface, IrisModuleTypes
 
@@ -9,31 +11,60 @@ from iris_cortex_analyzer_module.cortex_handler.cortex_handler import CortexHand
 
 class IrisCortexAnalyzerInterface(IrisModuleInterface):
     name = "IrisCortexAnalyzerInterface"
-    _module_name          = interface_conf.module_name
-    _module_description   = interface_conf.module_description
-    _interface_version    = interface_conf.interface_version
-    _module_version       = interface_conf.module_version
-    _pipeline_support     = interface_conf.pipeline_support
-    _pipeline_info        = interface_conf.pipeline_info
+    _module_name = interface_conf.module_name
+    _module_description = interface_conf.module_description
+    _interface_version = interface_conf.interface_version
+    _module_version = interface_conf.module_version
+    _pipeline_support = interface_conf.pipeline_support
+    _pipeline_info = interface_conf.pipeline_info
     _module_configuration = interface_conf.module_configuration
-    _module_type          = IrisModuleTypes.module_processor
+    _module_type = IrisModuleTypes.module_processor
+
+    def _conf(self, key, *aliases, default=None):
+        for candidate in (key, *aliases):
+            value = self.module_dict_conf.get(candidate)
+            if value is not None:
+                return value
+        return default
 
     def is_ready(self) -> bool:
-        return True
-
-    def _conf(self, *keys, default=None):
-        for k in keys:
-            v = self.module_dict_conf.get(k)
-            if v is not None:
-                return v
-        return default
+        """
+        Probe Cortex /api/status before accepting any hooks.
+        Logs a clear error with the exact URL tried so the user
+        knows immediately whether to switch to IP or container name.
+        """
+        url = (self._conf("cortex_url", default="http://cortex:9001") or "").rstrip("/")
+        probe = f"{url}/api/status"
+        try:
+            resp = requests.get(probe, timeout=5, verify=False)
+            # Cortex returns 200 (with org) or 520 (needs setup) — both mean it’s reachable
+            if resp.status_code in (200, 520):
+                self.log.info(f"Cortex reachable at {url} (HTTP {resp.status_code})")
+                return True
+            self.log.warning(
+                f"Cortex at {url} returned unexpected HTTP {resp.status_code}. "
+                "Check cortex_url in module config."
+            )
+            return False
+        except requests.exceptions.ConnectionError:
+            self.log.error(
+                f"Cannot connect to Cortex at {url}. "
+                "Fix cortex_url in IRIS → Advanced → Modules → Cortex Analyzer → Configure:\n"
+                "  • Same Docker stack  → http://cortex:9001\n"
+                "  • DNS fails          → http://host.docker.internal:9001\n"
+                "  • External host      → http://<HOST_IP>:9001"
+            )
+            return False
+        except requests.exceptions.Timeout:
+            self.log.error(f"Cortex connection timed out at {url}. Is Cortex running?")
+            return False
 
     def register_hooks(self, module_id: int):
         self.module_id = module_id
         hook_map = [
             (self._conf("on_create_hook_enabled", default=False), "on_postload_ioc_create", None),
             (self._conf("on_update_hook_enabled", default=False), "on_postload_ioc_update", None),
-            (self._conf("manual_hook_enabled",    default=True),  "on_manual_trigger_ioc",  "Run Cortex Analyzer"),
+            (self._conf("manual_hook_enabled", default=True), "on_manual_trigger_ioc", "Run Cortex Analyzer"),
         ]
         for enabled, iris_hook, manual_name in hook_map:
             if enabled:
@@ -43,18 +74,19 @@ class IrisCortexAnalyzerInterface(IrisModuleInterface):
                 if status.is_failure():
                     self.log.error(f"Failed to register hook {iris_hook}: {status.get_message()}")
                 else:
-                    self.log.info(f"Registered: {iris_hook}")
+                    self.log.info(f"Registered hook: {iris_hook}")
             else:
                 self.deregister_from_hook(module_id=module_id, iris_hook_name=iris_hook)
 
-    def hooks_handler(self, hook_name: str, hook_ui_name: str, data):
-        self.log.info(f"Hook: {hook_name}")
+    def hooks_handler(self, hook_name: str, hook_ui_name: str, data: any):
+        self.log.info(f"Hook received: {hook_name}")
         supported = {"on_postload_ioc_create", "on_postload_ioc_update", "on_manual_trigger_ioc"}
         if hook_name not in supported:
             self.log.critical(f"Unsupported hook: {hook_name}")
             return InterfaceStatus.I2Error(data=data, logs=list(self.message_queue))
 
-        if not self._conf("cortex_api_key") or self._conf("cortex_api_key") == "CHANGE_ME":
+        cortex_api_key = self._conf("cortex_api_key", default="")
+        if not cortex_api_key or cortex_api_key == "CHANGE_ME":
             self.log.warning("cortex_api_key not configured.")
             return InterfaceStatus.I2Error(
                 data=data,

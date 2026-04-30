@@ -8,7 +8,7 @@
 #
 # Quick Start:
 #   1. cp .env.example .env  →  edit CHANGE_ME values
-#   2. bash scripts/setup.sh          (OS-aware: Debian + RPM)
+#   2. bash scripts/setup.sh
 #   3. docker compose up -d
 #   4. bash scripts/install_module.sh
 #
@@ -56,6 +56,10 @@ services:
     command: ["nohup", "./iris-entrypoint.sh", "iriswebapp"]
     restart: unless-stopped
     env_file: [.env]
+    # extra_hosts: allows reaching Docker host via host.docker.internal.
+    # If 'cortex' DNS fails, use http://host.docker.internal:9001 as cortex_url.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./certificates/rootCA/irisRootCACert.pem:/etc/irisRootCACert.pem:ro
       - ./certificates/:/home/iris/certificates/:ro
@@ -86,6 +90,10 @@ services:
     env_file: [.env]
     environment:
       - IRIS_WORKER=1
+    # extra_hosts: allows reaching Docker host via host.docker.internal.
+    # If 'cortex' DNS fails, use http://host.docker.internal:9001 as cortex_url.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./certificates/rootCA/irisRootCACert.pem:/etc/irisRootCACert.pem:ro
       - ./certificates/:/home/iris/certificates/:ro
@@ -123,8 +131,6 @@ services:
           memory: 256m
 
   # ── Cortex Stack ──────────────────────────────────────────
-  # Cortex 4.x requires Elasticsearch 8.x ONLY
-  # ES_VERSION must be 8.x — ES 7.x is NOT supported by Cortex 4.0
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION:-8.13.0}
@@ -163,8 +169,6 @@ services:
     container_name: cortex
     restart: unless-stopped
     user: "0:0"
-    # Load .env so CORTEX_SECRET_KEY is available for HOCON substitution
-    # in cortex/config/application.conf: play.http.secret.key = ${?CORTEX_SECRET_KEY}
     env_file: [.env]
     environment:
       JAVA_OPTS: "-Xms1g -Xmx1g -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=256m"
