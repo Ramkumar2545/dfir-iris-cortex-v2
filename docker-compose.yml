@@ -189,10 +189,10 @@ services:
     environment:
       JAVA_OPTS: "-Xms1g -Xmx1g -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=256m"
       es_uri: http://cortex_es:9200
-      # Passes the absolute host path into the container so application.conf
-      # can read it via HOCON: dockerDirectory = ${?CORTEX_DOCKER_JOB_DIR}
-      # ${PROJECT_ROOT} is expanded from .env written by setup.sh.
-      CORTEX_DOCKER_JOB_DIR: ${PROJECT_ROOT}/cortex/jobs
+      # Use exact native variables so the Cortex entrypoint catches them
+      # This forces "File Mode" and prevents the STDIN JSONDecodeError
+      job_directory: /opt/cortex-jobs
+      docker_job_directory: ${PROJECT_ROOT}/cortex/jobs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./cortex/jobs:/opt/cortex-jobs
