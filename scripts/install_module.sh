@@ -13,7 +13,7 @@
 # ============================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}"); pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.."; pwd)"
 MODULE_DIR="${PROJECT_DIR}/iris_module"
 VENV_PIP="/opt/venv/bin/pip"
