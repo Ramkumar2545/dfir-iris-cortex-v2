@@ -21,12 +21,6 @@ class IrisCortexAnalyzerInterface(IrisModuleInterface):
     _module_type = IrisModuleTypes.module_processor
 
     def _conf(self, key, *aliases, default=None):
-        """
-        Safe config lookup.
-        module_dict_conf is a dict after IRIS hydrates it, but during
-        module import / health-check it may still be the raw list from
-        module_configuration — guard against that so is_ready() never crashes.
-        """
         conf = self.module_dict_conf
         if not isinstance(conf, dict):
             return default
@@ -37,19 +31,9 @@ class IrisCortexAnalyzerInterface(IrisModuleInterface):
         return default
 
     def is_ready(self) -> bool:
-        """
-        Called by IRIS during module import health-check.
-        module_dict_conf is NOT yet hydrated here — always return True
-        so the module imports cleanly.
-        Real connectivity errors are surfaced per-hook in hooks_handler().
-        """
         return True
 
     def _probe_cortex(self):
-        """
-        Probe Cortex /api/status. Called from hooks_handler before dispatching.
-        Returns (reachable: bool, url: str).
-        """
         url = (self._conf("cortex_url", default="http://cortex:9001") or "").rstrip("/")
         probe = f"{url}/api/status"
         try:
@@ -57,23 +41,21 @@ class IrisCortexAnalyzerInterface(IrisModuleInterface):
             if resp.status_code in (200, 520):
                 self.log.info(f"Cortex reachable at {url} (HTTP {resp.status_code})")
                 return True, url
-            self.log.warning(
-                f"Cortex at {url} returned unexpected HTTP {resp.status_code}. "
-                "Check cortex_url in module config."
-            )
+            self.log.warning(f"Cortex at {url} returned HTTP {resp.status_code}")
             return False, url
         except requests.exceptions.ConnectionError:
             self.log.error(
-                f"Cannot connect to Cortex at {url}.\n"
-                "Fix cortex_url in IRIS → Advanced → Modules → Cortex Analyzer → Configure:\n"
-                "  • Same Docker stack  → http://cortex:9001\n"
-                "  • DNS fails          → http://host.docker.internal:9001\n"
-                "  • External host      → http://<HOST_IP>:9001"
+                f"Cannot connect to Cortex at {url}. "
+                "Fix cortex_url: http://cortex:9001 or http://host.docker.internal:9001 or http://<HOST_IP>:9001"
             )
             return False, url
         except requests.exceptions.Timeout:
-            self.log.error(f"Cortex connection timed out at {url}. Is Cortex running?")
+            self.log.error(f"Cortex connection timed out at {url}")
             return False, url
+
+    def _logs(self):
+        """Return message_queue as a list of plain strings."""
+        return [str(m) for m in self.message_queue]
 
     def register_hooks(self, module_id: int):
         self.module_id = module_id
@@ -97,25 +79,21 @@ class IrisCortexAnalyzerInterface(IrisModuleInterface):
     def hooks_handler(self, hook_name: str, hook_ui_name: str, data: any):
         self.log.info(f"Hook received: {hook_name}")
         supported = {"on_postload_ioc_create", "on_postload_ioc_update", "on_manual_trigger_ioc"}
+
         if hook_name not in supported:
             self.log.critical(f"Unsupported hook: {hook_name}")
-            return InterfaceStatus.I2Error(data=data, logs=list(self.message_queue))
+            return InterfaceStatus.I2Error(data=data, logs=self._logs())
 
         cortex_api_key = self._conf("cortex_api_key", default="")
-        if not cortex_api_key or cortex_api_key == "CHANGE_ME":
-            self.log.warning("cortex_api_key not configured.")
-            return InterfaceStatus.I2Error(
-                data=data,
-                logs=["cortex_api_key not set. Go to Advanced > Modules > Cortex Analyzer > Configure"]
-            )
+        if not cortex_api_key or str(cortex_api_key).strip() == "CHANGE_ME":
+            msg = "cortex_api_key not set. Go to Advanced > Modules > Cortex Analyzer > Configure"
+            self.log.warning(msg)
+            return InterfaceStatus.I2Error(data=data, logs=[msg])
 
-        # Probe Cortex connectivity before dispatching to CortexHandler
         reachable, url = self._probe_cortex()
         if not reachable:
-            return InterfaceStatus.I2Error(
-                data=data,
-                logs=[f"Cannot reach Cortex at {url}. Check cortex_url in module config."]
-            )
+            msg = f"Cannot reach Cortex at {url}. Check cortex_url in module config."
+            return InterfaceStatus.I2Error(data=data, logs=[msg])
 
         handler = CortexHandler(
             mod_config=self.module_dict_conf,
@@ -124,5 +102,5 @@ class IrisCortexAnalyzerInterface(IrisModuleInterface):
         )
         status = handler.handle_iocs(data)
         if status.is_failure():
-            return InterfaceStatus.I2Error(data=data, logs=list(self.message_queue))
-        return InterfaceStatus.I2Success(data=data, logs=list(self.message_queue))
+            return InterfaceStatus.I2Error(data=data, logs=self._logs())
+        return InterfaceStatus.I2Success(data=data, logs=self._logs())
