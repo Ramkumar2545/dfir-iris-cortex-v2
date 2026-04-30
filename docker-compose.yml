@@ -57,6 +57,9 @@ services:
     command: ["nohup", "./iris-entrypoint.sh", "iriswebapp"]
     restart: unless-stopped
     env_file: [.env]
+    # Bypass __pycache__ so bind-mounted patches are always loaded fresh
+    environment:
+      - PYTHONPYCACHEPREFIX=/tmp/iris_pycache
     # extra_hosts: allows reaching Docker host via host.docker.internal.
     # If 'cortex' DNS fails, use http://host.docker.internal:9001 as cortex_url.
     extra_hosts:
@@ -68,6 +71,11 @@ services:
       - iris-downloads:/home/iris/downloads
       - user_templates:/home/iris/user_templates
       - server_data:/home/iris/server_data
+      # Patched IRIS internals — fixes HMAC serialization crash and module loading
+      - ./patches/updater.py:/iriswebapp/app/iris_engine/updater/updater.py:ro
+      - ./patches/tasks.py:/iriswebapp/app/iris_engine/tasker/tasks.py:ro
+      - ./patches/module_handler.py:/iriswebapp/app/iris_engine/module_handler/module_handler.py:ro
+      - ./patches/util.py:/iriswebapp/app/util.py:ro
     depends_on:
       db:
         condition: service_healthy
@@ -91,6 +99,8 @@ services:
     env_file: [.env]
     environment:
       - IRIS_WORKER=1
+      # Bypass __pycache__ so bind-mounted patches are always loaded fresh
+      - PYTHONPYCACHEPREFIX=/tmp/iris_pycache
     # extra_hosts: allows reaching Docker host via host.docker.internal.
     # If 'cortex' DNS fails, use http://host.docker.internal:9001 as cortex_url.
     extra_hosts:
@@ -102,6 +112,11 @@ services:
       - iris-downloads:/home/iris/downloads
       - user_templates:/home/iris/user_templates
       - server_data:/home/iris/server_data
+      # Patched IRIS internals — fixes HMAC serialization crash and module loading
+      - ./patches/updater.py:/iriswebapp/app/iris_engine/updater/updater.py:ro
+      - ./patches/tasks.py:/iriswebapp/app/iris_engine/tasker/tasks.py:ro
+      - ./patches/module_handler.py:/iriswebapp/app/iris_engine/module_handler/module_handler.py:ro
+      - ./patches/util.py:/iriswebapp/app/util.py:ro
     depends_on: [rabbitmq, db, app]
     networks: [iris_backend]
     deploy:
