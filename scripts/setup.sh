@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================
 # setup.sh — Universal first-time setup
-# Supports: Ubuntu 22.04/24.04/25.04/26.04 + RHEL/Rocky/Alma/Fedora/CentOS
+# Supports: Ubuntu 22.04/24.04/25.04/26.04 + Debian 11/12
+#           RHEL/Rocky/Alma/CentOS Stream 8,9 + Fedora 39-41+
+#           Amazon Linux 2, 2023
 #
 # Steps:
 #   1. Detect OS + install packages
 #   2. Install Docker CE (if missing)
 #   3. Set vm.max_map_count for Elasticsearch
-#   4. Create runtime dirs (cortex, certs, /tmp/cortex-jobs)
+#   4. Create runtime dirs (cortex/jobs, cortex/config, certs)
 #   5. Generate self-signed TLS certificate
-#   6. Auto-generate .env from .env.example (all secrets incl. CORTEX_SECRET_KEY)
-#   7. Validate critical .env keys
-#   8. Enable pgcrypto in PostgreSQL
+#   6. Auto-generate .env from .env.example (all secrets)
+#   7. Inject PROJECT_ROOT into .env for docker-compose
+#   8. Validate critical .env keys
+#   9. Enable pgcrypto in PostgreSQL
 # ============================================================
 set -euo pipefail
 
@@ -33,10 +36,11 @@ cd "${PROJECT_DIR}"
 info "═══════════════════════════════════════════════════"
 info " DFIR-IRIS + Cortex — Universal Setup v2"
 info " OS: ${OS_ID} ${OS_VERSION} (${OS_FAMILY})"
+info " Project root: ${PROJECT_DIR}"
 info "═══════════════════════════════════════════════════"
 
 # ── 1. OS packages ────────────────────────────────────────────
-info "[1/8] Installing OS packages..."
+info "[1/9] Installing OS packages..."
 
 if [ "${OS_FAMILY}" = "debian" ]; then
   export DEBIAN_FRONTEND=noninteractive
@@ -56,12 +60,12 @@ fi
 ok "OS packages installed"
 
 # ── 2. Docker ─────────────────────────────────────────────────
-info "[2/8] Docker CE check / install..."
+info "[2/9] Docker CE check / install..."
 bash "${SCRIPT_DIR}/install_docker.sh"
 ok "Docker ready"
 
-# ── 3. vm.max_map_count ───────────────────────────────────────
-info "[3/8] Setting vm.max_map_count=262144 (Elasticsearch requirement)"
+# ── 3. vm.max_map_count ────────────────────────────────────────
+info "[3/9] Setting vm.max_map_count=262144 (Elasticsearch requirement)"
 sysctl -w vm.max_map_count=262144
 if ! grep -q 'vm.max_map_count' /etc/sysctl.conf 2>/dev/null; then
   echo 'vm.max_map_count=262144' >> /etc/sysctl.conf
@@ -69,23 +73,32 @@ fi
 ok "vm.max_map_count=262144 (persistent)"
 
 # ── 4. Runtime directories ────────────────────────────────────
-info "[4/8] Creating runtime directories..."
-mkdir -p /tmp/cortex-jobs && chmod 777 /tmp/cortex-jobs
+info "[4/9] Creating runtime directories..."
+
+# cortex/jobs must exist as an absolute host path so that Docker can
+# bind-mount it into analyzer sub-containers spawned by Cortex.
+# The path is saved as PROJECT_ROOT in .env (step 7).
+info "  Setting up Cortex job directories..."
+mkdir -p "${PROJECT_DIR}/cortex/jobs"
+chmod -R 777 "${PROJECT_DIR}/cortex/jobs"
+ok "  Cortex job directory configured at: ${PROJECT_DIR}/cortex/jobs"
+
 mkdir -p \
   "${PROJECT_DIR}/cortex/config" \
   "${PROJECT_DIR}/cortex/logs" \
   "${PROJECT_DIR}/cortex/neurons"
 chmod 777 "${PROJECT_DIR}/cortex/logs"
 chmod 755 "${PROJECT_DIR}/cortex/config" "${PROJECT_DIR}/cortex/neurons"
+
 mkdir -p \
   "${PROJECT_DIR}/certificates/web_certificates" \
   "${PROJECT_DIR}/certificates/rootCA" \
   "${PROJECT_DIR}/certificates/ldap"
 touch "${PROJECT_DIR}/certificates/ldap/.keep"
-ok "Directories ready"
+ok "All runtime directories ready"
 
-# ── 5. TLS certificates ───────────────────────────────────────
-info "[5/8] Generating self-signed TLS certificate (10 years)"
+# ── 5. TLS certificates ──────────────────────────────────────
+info "[5/9] Generating self-signed TLS certificate (10 years)"
 CERT_PATH="${PROJECT_DIR}/certificates/web_certificates"
 if [ ! -f "${CERT_PATH}/iris.crt" ]; then
   openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
@@ -102,7 +115,7 @@ else
 fi
 
 # ── 6. .env generation ────────────────────────────────────────
-info "[6/8] Setting up .env..."
+info "[6/9] Setting up .env..."
 if [ ! -f "${PROJECT_DIR}/.env" ]; then
   cp "${PROJECT_DIR}/.env.example" "${PROJECT_DIR}/.env"
 
@@ -125,18 +138,31 @@ else
   ok ".env already exists — skipping auto-generation"
 fi
 
-# ── 7. Validate .env ──────────────────────────────────────────
-info "[7/8] Validating .env keys..."
-for KEY in SECRET_KEY SECURITY_PASSWORD_SALT DB_PASS IRIS_VERSION CORTEX_SECRET_KEY; do
+# ── 7. Inject PROJECT_ROOT into .env (docker-compose reads it) ────────
+# CORTEX_DOCKER_JOB_DIR in docker-compose.yml expands to:
+#   ${PROJECT_ROOT}/cortex/jobs
+# which Cortex passes to spawned analyzer containers as their host path.
+# Guard prevents duplicates on re-runs; sed updates if path changed.
+info "[7/9] Writing PROJECT_ROOT to .env..."
+if ! grep -q 'PROJECT_ROOT=' "${PROJECT_DIR}/.env" 2>/dev/null; then
+  echo "PROJECT_ROOT=${PROJECT_DIR}" >> "${PROJECT_DIR}/.env"
+else
+  sed -i "s|^PROJECT_ROOT=.*|PROJECT_ROOT=${PROJECT_DIR}|" "${PROJECT_DIR}/.env"
+fi
+ok "PROJECT_ROOT=${PROJECT_DIR}"
+
+# ── 8. Validate .env ───────────────────────────────────────────
+info "[8/9] Validating .env keys..."
+for KEY in SECRET_KEY SECURITY_PASSWORD_SALT DB_PASS IRIS_VERSION CORTEX_SECRET_KEY PROJECT_ROOT; do
   VAL=$(grep "^${KEY}=" "${PROJECT_DIR}/.env" | cut -d'=' -f2- || true)
   if [ -z "${VAL}" ] || echo "${VAL}" | grep -qi 'change_me'; then
     err "${KEY} is missing or still CHANGE_ME! Edit .env first."
   fi
-  ok "  ${KEY} = ${VAL:0:14}..."
+  ok "  ${KEY} = ${VAL:0:40}..."
 done
 
-# ── 8. pgcrypto extension ─────────────────────────────────────
-info "[8/8] Starting DB and enabling pgcrypto..."
+# ── 9. pgcrypto extension ──────────────────────────────────────
+info "[9/9] Starting DB and enabling pgcrypto..."
 docker compose up -d db
 info "Waiting for DB to be healthy (up to 60s)..."
 for i in $(seq 1 30); do
@@ -152,10 +178,11 @@ docker exec iriswebapp_db psql -U "${DB_USER}" -d "${DB_NAME}" \
   2>&1 | grep -v '^$' || true
 ok "pgcrypto + uuid-ossp enabled"
 
-info ""
+echo ""
 info "═══════════════════════════════════════════════════"
 ok  " Setup complete!"
 info "═══════════════════════════════════════════════════"
+info " Cortex jobs dir  : ${PROJECT_DIR}/cortex/jobs"
 info " Next steps:"
 info "   docker compose up -d"
 info "   bash scripts/install_module.sh"

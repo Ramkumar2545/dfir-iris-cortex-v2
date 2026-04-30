@@ -5,10 +5,11 @@
 #   IRIS_VERSION    (default: v2.4.27)
 #   CORTEX_VERSION  (default: latest = 4.0.0)
 #   ES_VERSION      (default: 8.13.0)
+#   PROJECT_ROOT    (written by setup.sh — absolute host path)
 #
 # Quick Start:
 #   1. cp .env.example .env  →  edit CHANGE_ME values
-#   2. bash scripts/setup.sh
+#   2. sudo bash scripts/setup.sh
 #   3. docker compose up -d
 #   4. bash scripts/install_module.sh
 #
@@ -130,7 +131,7 @@ services:
         limits:
           memory: 256m
 
-  # ── Cortex Stack ──────────────────────────────────────────
+  # ── Cortex Stack ────────────────────────────────────────────
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION:-8.13.0}
@@ -173,11 +174,13 @@ services:
     environment:
       JAVA_OPTS: "-Xms1g -Xmx1g -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=256m"
       es_uri: http://cortex_es:9200
-      job_directory: /tmp/cortex-jobs
-      docker_job_directory: /tmp/cortex-jobs
+      # Passes the absolute host path into the container so application.conf
+      # can read it via HOCON: dockerDirectory = ${?CORTEX_DOCKER_JOB_DIR}
+      # ${PROJECT_ROOT} is expanded from .env written by setup.sh.
+      CORTEX_DOCKER_JOB_DIR: ${PROJECT_ROOT}/cortex/jobs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/cortex-jobs:/tmp/cortex-jobs
+      - ./cortex/jobs:/opt/cortex-jobs
       - ./cortex/config:/etc/cortex
       - ./cortex/logs:/var/log/cortex
       - ./cortex/neurons:/opt/cortexneurons
