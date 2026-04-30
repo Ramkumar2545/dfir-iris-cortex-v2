@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name            = "iris_cortex_analyzer_module"
 version         = "1.0.0"
 description     = "DFIR-IRIS module: Cortex Analyzer integration via cortex4py"
 readme          = "README.md"
-license         = { file = "../LICENSE" }
+# SPDX string — avoids deprecated { file = ... } table and path-outside-root error
+license         = "MIT"
 authors         = [{ name = "Ram Kumar G" }]
 requires-python = ">=3.9"
 dependencies    = [
